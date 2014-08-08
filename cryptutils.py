@@ -18,7 +18,7 @@ def getblobdata(b):
 	fetched = c_buffer(length)
 	copy(fetched, b.data, length)
 
-	freeblobdata(b.data)
+	freeblobdata(b)
 	return fetched.raw
 
 # this function will free the memory of the data field from a given blob
@@ -29,20 +29,21 @@ def freeblobdata(b):
 # this function will encrypt a given string in accordance with the 
 # ConvertFrom-SecureString commandlet and return the hex representation
 def encrypt(input):
-	nulled = ""
 	# for some odd reason the cmdlet's calls encrypt the data with interwoven
 	# nulls, for which we will account as follows:
+	nulled = ""
 	for char in input:
 		nulled = nulled + char + "\x00"
 
-	data = c_buffer(input, len(input))
-	inputBlob = blob(len(input), data)
+	data = c_buffer(nulled, len(nulled))
+
+	inputBlob = blob(len(nulled), data)
 	entropyBlob = blob()
 	outputBlob = blob()
-	dwflags = 0x01
+	flag = 0x01
 
 	res = protectdata(byref(inputBlob), u"", byref(entropyBlob), None, 
-		None, dwflags, byref(outputBlob))
+		None, flag, byref(outputBlob))
 	if res == 0:
 		freeblobdata(outputBlob)
 		raise Exception("Failed to encrypt " + input)
@@ -53,8 +54,9 @@ def encrypt(input):
 # and return the original string which was encrypted
 def decrypt(input):
 	rawinput = input.decode("hex")
-	data = c_buffer(input, len(input))
-	inputBlob = blob(len(input), data)
+	data = c_buffer(rawinput, len(rawinput))
+
+	inputBlob = blob(len(rawinput), data)
 	entropyBlob = blob()
 	outputBlob = blob()
 	dwflags = 0x01
