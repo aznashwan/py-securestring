@@ -40,7 +40,8 @@ def test_convert_encrypted_to_securestring():
 	for input in testinputs:
 		try:
 			enc = encrypt(input)
-			psres = runpscommand("\"%s\" | ConvertTo-SecureString", enc)
+			psres = runpscommand("\"%s\" | ConvertTo-SecureString" % enc)
 			assert psres == "System.Security.SecureString"
 		except:
 			assert False
+
