@@ -74,3 +74,4 @@ def decrypt(input):
 			if char != "\x00":
 				clean = clean + char
 		return clean
+
