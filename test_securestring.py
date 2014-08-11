@@ -20,9 +20,8 @@ def test_encryption_decryption_symmetry():
 
 def runpscommand(command):
 	try:
-		return check_output(["powershell.exe", "-NoProfile", "-NonInteractive",
-		"try{$input|iex; exit $LastExitCode}catch{Write-Error -Message $Error[0]; exit 1}",
-		command]).encode("utf-8")
+		return check_output(["powershell.exe", "-NoProfile",
+                    "-NonInteractive", command]).replace("\r\n", "")
 	except:
 		raise Exception("System error has occured.")
 
