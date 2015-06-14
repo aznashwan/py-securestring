@@ -1,77 +1,124 @@
-from ctypes import *
-from ctypes.wintypes import DWORD
+# Copyright 2015, Nashwan Azhari.
+# Licensed under the GPLv2, see LICENSE file for details.
 
-protectdata = windll.crypt32.CryptProtectData
-unprotectdata = windll.crypt32.CryptUnprotectData
-localfree = windll.kernel32.LocalFree
-copy = cdll.msvcrt.memcpy
+"""
+A pure Python implementation of the functionality of the ConvertTo-SecureString
+and ConvertFrom-SecureString PoweShell commandlets.
 
-# the basic blob structure we will be using for calling
-# the above System functions
-class blob(Structure):
-	_fields_ = [("length", DWORD), ("data", POINTER(c_char))]
+Usage example:
+from securestring import encrypt, decrypt
 
-# this function will fetch all the gata from a given blob
-def getblobdata(b):
-	length = int(b.length)
-	
-	fetched = c_buffer(length)
-	copy(fetched, b.data, length)
+if __name__ == "__main__":
+    str = "My horse is amazing"
 
-	freeblobdata(b)
-	return fetched.raw
+    # encryption:
+    try:
+        enc = encrypt(str)
+        print("The encryption of %s is: %s" % (str, enc))
+    except Exception as e:
+        print(e)
 
-# this function will free the memory of the data field from a given blob
-def freeblobdata(b):
-	localfree(b.data)
+    # decryption:
+    try:
+        dec = decrypt(enc)
+        print("The decryption of the above is: %s" % dec)
+    except Exception as e:
+        print(e)
+
+    # checking of operation symmetry:
+    print("Encryption and decryption are symmetrical: %r", dec == str)
+
+    # decrypting powershell input:
+    psenc = "<your output of ConvertFrom-SecureString>"
+    try:
+        dec = decrypt(psenc)
+        print("Decryption from ConvertFrom-SecureString's input: %s" % dec)
+    except Exception as e:
+        print(e)
+
+"""
+
+from codecs import encode
+from codecs import decode
+
+from blob import Blob
+
+from ctypes import byref
+from ctypes import create_string_buffer
+from ctypes import windll
+
+protect_data = windll.crypt32.CryptProtectData
+unprotect_data = windll.crypt32.CryptUnprotectData
 
 
-# this function will encrypt a given string in accordance with the 
-# ConvertFrom-SecureString commandlet and return the hex representation
 def encrypt(input):
-	# for some odd reason the cmdlet's calls encrypt the data with interwoven
-	# nulls, for which we will account as follows:
-	nulled = ""
-	for char in input:
-		nulled = nulled + char + "\x00"
+    """Encrypts the given string following the same syscalls as done by
+    ConvertFrom-SecureString.
 
-	data = c_buffer(nulled, len(nulled))
+    Arguments:
+    input -- an input string.
 
-	inputBlob = blob(len(nulled), data)
-	entropyBlob = blob()
-	outputBlob = blob()
-	flag = 0x01
+    Returns:
+    output -- string containing the output of the encryption in hexadecimal.
+    """
+    # CryptProtectData takes UTF-16; so we must convert the data here:
+    encoded = input.encode("utf-16")
+    data = create_string_buffer(encoded, len(encoded))
 
-	res = protectdata(byref(inputBlob), u"", byref(entropyBlob), None, 
-		None, flag, byref(outputBlob))
-	if res == 0:
-		freeblobdata(outputBlob)
-		raise Exception("Failed to encrypt " + input)
-	else:
-		return getblobdata(outputBlob).encode("hex")
+    # create our various Blobs:
+    input_blob = Blob(len(encoded), data)
+    output_blob = Blob()
+    flag = 0x01
 
-# this function will decrypt the output of ConvertFrom-SecureString
-# and return the original string which was encrypted
+    # call CryptProtectData:
+    res = protect_data(byref(input_blob), u"", byref(Blob()), None,
+                       None, flag, byref(output_blob))
+    input_blob.free_blob()
+
+    # check return code:
+    if res == 0:
+        output_blob.free_blob()
+        raise Exception("Failed to encrypt: %s" % input)
+    else:
+        raw = output_blob.get_data()
+        output_blob.free_blob()
+
+        # encode the resulting bytes into hexadecimal before returning:
+        hex = encode(raw, "hex")
+        return decode(hex, "utf-8").upper()
+
+
 def decrypt(input):
-	rawinput = input.decode("hex")
-	data = c_buffer(rawinput, len(rawinput))
+    """Decrypts the given hexadecimally-encoded string in conformity
+    with CryptUnprotectData.
 
-	inputBlob = blob(len(rawinput), data)
-	entropyBlob = blob()
-	outputBlob = blob()
-	dwflags = 0x01
+    Arguments:
+    input -- the encrypted input string in hexadecimal format.
 
-	res = unprotectdata(byref(inputBlob), u"", byref(entropyBlob), None, 
-		None, dwflags, byref(outputBlob))
-	if res == 0:
-		freeblobdata(outputBlob)
-		raise Exception("Failed to decrypt " + input)
-	else:
-		clean = ""
-		# as mentioned, the commandlets work with data with interwoven nulls,
-		# for which we must account for by removing them at the end:
-		for char in getblobdata(outputBlob):
-			if char != "\x00":
-				clean = clean + char
-		return clean
+    Returns:
+    output -- string containing the output of decryption.
+    """
+    # de-hex the input:
+    rawinput = decode(input, "hex")
+    data = create_string_buffer(rawinput, len(rawinput))
 
+    # create out various Blobs:
+    input_blob = Blob(len(rawinput), data)
+    output_blob = Blob()
+    dwflags = 0x01
+
+    # call CryptUnprotectData:
+    res = unprotect_data(byref(input_blob), u"", byref(Blob()), None,
+                         None, dwflags, byref(output_blob))
+    input_blob.free_blob()
+
+    # check return code:
+    if res == 0:
+        output_blob.free_blob()
+        raise Exception("Failed to decrypt: %s" + input)
+    else:
+        raw = output_blob.get_data()
+        output_blob.free_blob()
+
+        # decode the resulting data from UTF-16:
+        return decode(raw, "utf-16")
